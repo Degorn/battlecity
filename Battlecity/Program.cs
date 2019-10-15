@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Drawing;
 using System.Linq;
 using System.Text;
@@ -10,25 +11,39 @@ namespace Battlecity
 {
 	class Program
 	{
-		enum Direction
-		{
-			LEFT, RIGHT, UP, DOWN
-		};
-
-		static readonly	char[] PlayerChars = new[] { '▲', '►', '▼', '◄' };
+		static readonly char[] PlayerChars = new[] { '▲', '►', '▼', '◄' };
 		static readonly char[] EnemyChars = new[] { '˄', '˃', '˅', '˂' };
-		const char BULLET = '•';
+		static readonly Dictionary<char, int> WallsDict = new Dictionary<char, int>
+		{
+			{ '╬', 3 },
+
+			{ '╩', 2 },
+			{ '╦', 2 },
+			{ '╠', 2 },
+			{ '╣', 2 },
+
+			{ '╨', 1 },
+			{ '╥', 1 },
+			{ '╞', 1 },
+			{ '╡', 1 },
+			{ '│', 1 },
+			{ '─', 1 },
+			{ '┌', 1 },
+			{ '┐', 1 },
+			{ '└', 1 },
+			{ '┘', 1 }
+		};
+		const char
+			GROUND = ' ',
+			BULLET = '•',
+			WALL = '☼';
+
 
 		static char[,] Field;
-
+		static int FieldLength;
 		static Point PlayerPosition;
 
-		static int FieldLength;
-
-		// Enemy states
-		static int NearestDistanceToEnemy;
-		static Point NearestEnemyPosition = new Point();
-		static Direction DirectionToNearestEnemy;
+		static Direction BestDirection;
 
 		static void Main(string[] args)
 		{
@@ -42,12 +57,11 @@ namespace Battlecity
 					FieldLength = (int)Math.Sqrt(oneLineField.Length);
 
 					InitializeField(oneLineField);
-					InitializeProps();
 
 					// Chech lines for target
 					FindClosestEnemy();
 
-					webSocket.Send($"{DirectionToNearestEnemy.ToString()}, ACT");
+					webSocket.Send($"{BestDirection.ToString()}, ACT");
 				};
 
 				webSocket.Open();
@@ -77,69 +91,98 @@ namespace Battlecity
 			}
 		}
 
-		private static void InitializeProps()
+		private static bool CheckEnemyInCell(Point point)
 		{
-			NearestDistanceToEnemy = FieldLength;
-		}
-
-		private static bool CheckEnemyInCell(int x, int y)
-		{
-			return EnemyChars.Contains(Field[y, x]);
+			return EnemyChars.Contains(Field[point.Y, point.X]);
 		}
 
 		private static void FindClosestEnemy()
 		{
 			// Find by directions
-			CheckLeft();
-			CheckRight();
-			CheckUp();
-			CheckDown();
+			var pathes = new List<Path>
+			{
+				GetLeftPath(),
+				GetRightPath(),
+				GetUpPath(),
+				GetDownPath()
+			};
+			var betterPath = CheckPathes(pathes);
+
+			BestDirection = betterPath.First().Direction;
 
 			// Then find by square ~3x3
 
 
 		}
 
-		private static void CheckLeft()
+		private static Path GetLeftPath()
 		{
-			for (int x = PlayerPosition.X; x > 0; x--)
+			var path = new Path();
+			for (int x = PlayerPosition.X; x > 1; x--)
 			{
-				CheckPointAndUpdateState(Direction.LEFT, new Point(x, PlayerPosition.Y));
+				path.Add(new PathPart(Direction.LEFT, new Point(x, PlayerPosition.Y)));
 			}
+			return path;
 		}
-		private static void CheckRight()
+		private static Path GetRightPath()
 		{
-			for (int x = PlayerPosition.X; x < FieldLength; x++)
+			var path = new Path();
+			for (int x = PlayerPosition.X; x < FieldLength - 1; x++)
 			{
-				CheckPointAndUpdateState(Direction.RIGHT, new Point(x, PlayerPosition.Y));
+				path.Add(new PathPart(Direction.RIGHT, new Point(x, PlayerPosition.Y)));
 			}
+			return path;
 		}
-		private static void CheckUp()
+		private static Path GetUpPath()
 		{
-			for (int y = PlayerPosition.Y; y > 0; y--)
+			var path = new Path();
+			for (int y = PlayerPosition.Y; y > 1; y--)
 			{
-				CheckPointAndUpdateState(Direction.UP, new Point(PlayerPosition.X, y));
+				path.Add(new PathPart(Direction.UP, new Point(PlayerPosition.X, y)));
 			}
+			return path;
 		}
-		private static void CheckDown()
+		private static Path GetDownPath()
 		{
-			for (int y = PlayerPosition.Y; y < FieldLength; y++)
+			var path = new Path();
+			for (int y = PlayerPosition.Y; y < FieldLength - 1; y++)
 			{
-				CheckPointAndUpdateState(Direction.DOWN, new Point(PlayerPosition.X, y));
+				path.Add(new PathPart(Direction.DOWN, new Point(PlayerPosition.X, y)));
 			}
+			return path;
 		}
 
-		private static void CheckPointAndUpdateState(Direction direction, Point position)
+		private static Path CheckPathes(IEnumerable<Path> paths)
 		{
-			if (CheckEnemyInCell(position.X, position.Y))
+			Path mostProfitablePath = paths.First();
+			var lowerPathValue = int.MaxValue;
+
+			foreach (var path in paths)
 			{
-				var distanceToEnemy = GetDistanceToEnemy(position);
-				if (NearestDistanceToEnemy > distanceToEnemy)
+				var pathValue = CheckPath(path);
+				if (lowerPathValue > pathValue)
 				{
-					NearestDistanceToEnemy = distanceToEnemy;
-					DirectionToNearestEnemy = direction;
+					lowerPathValue = pathValue;
+					mostProfitablePath = path;
 				}
 			}
+
+			return mostProfitablePath;
+		}
+
+		private static int CheckPath(Path path)
+		{
+			// TO DO: Move this to CheckPathValue
+			var points = path.GetPoints();
+			foreach (var point in points)
+			{
+				if (CheckEnemyInCell(point))
+				{
+					return CheckPathValue(points);
+				}
+			}
+
+			return int.MaxValue;
 		}
 
 		private static int GetDistanceToEnemy(Point enemyPosition)
@@ -148,6 +191,56 @@ namespace Battlecity
 				Math.Sqrt(
 					Math.Pow((PlayerPosition.X - enemyPosition.X), 2) +
 					Math.Pow((PlayerPosition.Y - enemyPosition.Y), 2)));
+		}
+
+		private static int CheckPathValue(Point[] points)
+		{
+			return CheckPathValue(Enumerable.Range(1, points.Length - 1).Select(x => Field[points[x].Y, points[x].X]).ToArray());
+		}
+
+		private static int CheckPathValue(char[] chars)
+		{
+			int value = 0;
+
+			for (int i = 0; i < chars.Length; i++)
+			{
+				if (chars[i] == WALL)
+				{
+					return int.MaxValue;
+				}
+
+				if (WallsDict.ContainsKey(chars[i]))
+				{
+					value += WallsDict[chars[i]];
+				}
+			}
+
+			return value;
+		}
+	}
+
+	enum Direction
+	{
+		LEFT, RIGHT, UP, DOWN
+	};
+
+	class Path : List<PathPart>
+	{
+		public Point[] GetPoints()
+		{
+			return this.Select(x => x.Point).ToArray();
+		}
+	}
+
+	struct PathPart
+	{
+		public Direction Direction { get; set; }
+		public Point Point { get; set; }
+
+		public PathPart(Direction direction, Point point)
+		{
+			Direction = direction;
+			Point = point;
 		}
 	}
 }
