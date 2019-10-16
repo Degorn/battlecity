@@ -37,6 +37,14 @@ namespace Battlecity
 			BULLET = '•',
 			WALL = '☼';
 
+
+		static readonly Direction[] Directions = new Direction[]
+		{
+			Direction.LEFT,
+			Direction.UP,
+			Direction.RIGHT,
+			Direction.DOWN,
+		};
 		static readonly Dictionary<Direction, Point> DirectionToPointDict = new Dictionary<Direction, Point>
 		{
 			{ Direction.LEFT, new Point(-1, 0) },
@@ -55,6 +63,11 @@ namespace Battlecity
 			ShouldMove,
 			ShouldAct;
 
+		static string MoveDirection { get; set; }
+		static string Action { get; set; } = "ACTION";
+		static string Comma => !string.IsNullOrEmpty(MoveDirection) && !string.IsNullOrEmpty(Action) ? ", " : "";
+		static bool MoveFirst { get; set; } = true;
+
 		static void Main(string[] args)
 		{
 			var regex = new Regex(@"=(.*)$");
@@ -69,15 +82,26 @@ namespace Battlecity
 					InitializeField(oneLineField);
 
 					// Chech lines for target
-					FindClosestEnemy();
+					//FindClosestEnemy();
 
-					if (ShouldAct)
+					//if (ShouldAct)
+					//{
+					//	webSocket.Send($"{BestDirection.ToString()}, ACT");
+					//}
+					//else
+					//{
+					//	webSocket.Send($"{BestDirection.ToString()}");
+					//}
+
+					MoveToPossibleSafePlace();
+
+					if (MoveFirst)
 					{
-						webSocket.Send($"{BestDirection.ToString()}, ACT");
+						webSocket.Send($"{MoveDirection}{Comma}{Action}");
 					}
 					else
 					{
-						webSocket.Send($"{BestDirection.ToString()}");
+						webSocket.Send($"{Action}{Comma}{MoveDirection}");
 					}
 				};
 
@@ -245,20 +269,20 @@ namespace Battlecity
 				}
 				if (CheckWallInCell(points[i]))
 				{
-					break;
+					return int.MaxValue;
 				}
 				if ((i == 0 || i == 1 || i == 2) && CheckBulletInCell(points[i]))
 				{
-					break;
+					return int.MaxValue; ;
 				}
 				if (!CheckPathPartSafeness(path[i]))
 				{
-					break;
+					return int.MaxValue;
 				}
 			}
 
 			ShouldAct = true;
-			return int.MaxValue;
+			return 100;
 		}
 
 		private static bool CheckBulletInCell(Point point)
@@ -318,7 +342,7 @@ namespace Battlecity
 
 		private static bool CheckPathPartSafeness(PathPart pathPart)
 		{
-			if (pathPart.Direction == Direction.LEFT || pathPart.Direction == Direction.RIGHT)
+			if (pathPart.Direction == Direction.DOWN || pathPart.Direction == Direction.UP)
 			{
 				if (CheckBulletInCell(new Point(pathPart.Point.X + 1, pathPart.Point.Y)) ||
 					CheckBulletInCell(new Point(pathPart.Point.X + 2, pathPart.Point.Y)) ||
@@ -341,11 +365,182 @@ namespace Battlecity
 
 			return true;
 		}
+
+
+		#region New
+
+		static Direction PlayerCurrentDirection;
+		static bool PlayerChangedDirection;
+		static readonly Random Random;
+
+		private static void MoveToPossibleSafePlace()
+		{
+			if (CheckIfPlayerShouldMove())
+			{
+				if (IsHorizontalDirectionMoveSafe(PlayerPosition.Add(DirectionToPointDict[Direction.LEFT])) && CheckBulletInCell(PlayerPosition.Add(new Point(-3, 0))))
+				{
+					Move(Direction.LEFT);
+				}
+				else if (IsHorizontalDirectionMoveSafe(PlayerPosition.Add(DirectionToPointDict[Direction.RIGHT])) && CheckBulletInCell(PlayerPosition.Add(new Point(3, 0))))
+				{
+					Move(Direction.RIGHT);
+				}
+				else if (IsVerticallDirectionMoveSafe(PlayerPosition.Add(DirectionToPointDict[Direction.UP])) && CheckBulletInCell(PlayerPosition.Add(new Point(0, -3))))
+				{
+					Move(Direction.UP);
+				}
+				else if (IsVerticallDirectionMoveSafe(PlayerPosition.Add(DirectionToPointDict[Direction.DOWN])) && CheckBulletInCell(PlayerPosition.Add(new Point(0, 3))))
+				{
+					Move(Direction.DOWN);
+				}
+				else
+				{
+					Stay();
+				}
+
+				PlayerChangedDirection = true;
+			}
+			else
+			{
+				if (PlayerChangedDirection || CheckBarrierInCell(PlayerPosition.Add(DirectionToPointDict[PlayerCurrentDirection])))
+				{
+					PlayerChangedDirection = false;
+					PlayerCurrentDirection = GetRandomSafeDirection();
+				}
+
+				if (PlayerCurrentDirection == Direction.NONE)
+				{
+					Stay();
+				}
+
+				Move(PlayerCurrentDirection);
+			}
+		}
+
+		private static Direction GetRandomSafeDirection()
+		{
+			var list = new List<Direction>();
+
+			foreach (var direction in DirectionToPointDict.Keys)
+			{
+				if (direction == Direction.LEFT || direction == Direction.RIGHT)
+				{
+					if (IsHorizontalDirectionMoveSafe(PlayerPosition.Add(DirectionToPointDict[direction])))
+					{
+						list.Add(direction);
+					}
+				}
+				else
+				{
+					if (IsVerticallDirectionMoveSafe(PlayerPosition.Add(DirectionToPointDict[direction])))
+					{
+						list.Add(direction);
+					}
+				}
+			}
+
+			if(list.Count == 0)
+			{
+				return Direction.NONE;
+			}
+
+			return list[Random.Next(list.Count)];
+		}
+
+		private static void Stay()
+		{
+			MoveDirection = "";
+		}
+
+		private static void Move(Direction direction)
+		{
+			MoveDirection = direction.ToString();
+		}
+
+		private static bool IsHorizontalDirectionMoveSafe(Point point)
+		{
+			return
+				CheckVerticalThreat(point) &&
+				!CheckWallInCell(point) &&
+				!CheckConstructionInCell(point);
+		}
+
+		private static bool IsVerticallDirectionMoveSafe(Point point)
+		{
+			return
+				CheckHorizontalThreat(point) &&
+				!CheckWallInCell(point) &&
+				!CheckConstructionInCell(point);
+		}
+
+		private static bool CheckConstructionInCell(Point point)
+		{
+			return ConstructionDict.Keys.Contains(GetFieldChar(point));
+		}
+
+		private static char GetFieldChar(Point point)
+		{
+			return Field[point.Y, point.X];
+		}
+
+		private static bool CheckIfPlayerShouldMove()
+		{
+			if (IsBulletOnCrossOnPlayer())
+			{
+				return true;
+			}
+
+			return false;
+		}
+
+		private static bool IsBulletOnCrossOnPlayer()
+		{
+			return
+				CheckHorizontalThreat(PlayerPosition) ||
+				CheckVerticalThreat(PlayerPosition);
+		}
+
+		private static bool CheckHorizontalThreat(Point point)
+		{
+			return
+				!CheckBarrierInCell(new Point(point.Y, point.X + 1)) &&
+				(CheckThreatInCell(new Point(point.Y, point.X + 1)) ||
+				CheckThreatInCell(new Point(point.Y, point.X + 2))) ||
+
+				!CheckBarrierInCell(new Point(point.Y, point.X - 1)) &&
+				(CheckThreatInCell(new Point(point.Y, point.X - 1)) ||
+				CheckThreatInCell(new Point(point.Y, point.X - 2)));
+		}
+
+		private static bool CheckVerticalThreat(Point point)
+		{
+			return
+				!CheckBarrierInCell(new Point(point.Y + 1, point.X)) &&
+				(CheckThreatInCell(new Point(point.Y + 1, point.X)) ||
+				CheckThreatInCell(new Point(point.Y + 2, point.X))) ||
+
+				!CheckBarrierInCell(new Point(point.Y - 1, point.X)) &&
+				(CheckThreatInCell(new Point(point.Y - 1, point.X)) ||
+				CheckThreatInCell(new Point(point.Y - 2, point.X)));
+		}
+
+		private static bool CheckThreatInCell(Point point)
+		{
+			return CheckBulletInCell(point);
+		}
+
+		private static bool CheckBarrierInCell(Point point)
+		{
+			return CheckWallInCell(point) || CheckConstructionInCell(point);
+		}
+
+
+		#endregion
 	}
 
 	enum Direction
 	{
-		LEFT, UP, RIGHT, DOWN
+		LEFT, UP, RIGHT, DOWN, NONE
 	};
 
 	class Path : List<PathPart>
@@ -367,6 +562,14 @@ namespace Battlecity
 		{
 			Direction = direction;
 			Point = point;
+		}
+	}
+
+	static class PointExtension
+	{
+		public static Point Add(this Point point, Point newPoint)
+		{
+			return new Point(point.X + newPoint.X, point.Y + newPoint.Y);
 		}
 	}
 }
