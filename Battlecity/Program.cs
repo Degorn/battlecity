@@ -4,7 +4,6 @@ using System.Drawing;
 using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
-using System.Threading;
 using WebSocket4Net;
 
 namespace Battlecity
@@ -13,7 +12,7 @@ namespace Battlecity
 	{
 		static readonly char[] PlayerChars = new[] { '▲', '►', '▼', '◄' };
 		static readonly char[] EnemyChars = new[] { '˄', '˃', '˅', '˂' };
-		static readonly Dictionary<char, int> WallsDict = new Dictionary<char, int>
+		static readonly Dictionary<char, int> ConstructionDict = new Dictionary<char, int>
 		{
 			{ '╬', 3 },
 
@@ -52,6 +51,10 @@ namespace Battlecity
 
 		static Direction BestDirection;
 
+		static bool
+			ShouldMove,
+			ShouldAct;
+
 		static void Main(string[] args)
 		{
 			var regex = new Regex(@"=(.*)$");
@@ -68,12 +71,19 @@ namespace Battlecity
 					// Chech lines for target
 					FindClosestEnemy();
 
-					webSocket.Send($"{BestDirection.ToString()}, ACT");
+					if (ShouldAct)
+					{
+						webSocket.Send($"{BestDirection.ToString()}, ACT");
+					}
+					else
+					{
+						webSocket.Send($"{BestDirection.ToString()}");
+					}
 				};
 
 				webSocket.Open();
 
-				Console.ReadKey();
+				Console.ReadLine();
 			}
 		}
 
@@ -114,25 +124,33 @@ namespace Battlecity
 				GetDownPath(),
 			};
 
-			var listOfPerm = new List<IEnumerable<IEnumerable<Direction>>>
-			{
-				GetPermutationsWithRept(new List<Direction> { Direction.LEFT, Direction.UP, Direction.RIGHT, Direction.DOWN }, 1),
-				GetPermutationsWithRept(new List<Direction> { Direction.LEFT, Direction.UP, Direction.RIGHT, Direction.DOWN }, 2),
-				GetPermutationsWithRept(new List<Direction> { Direction.LEFT, Direction.UP, Direction.RIGHT, Direction.DOWN }, 3),
-				GetPermutationsWithRept(new List<Direction> { Direction.LEFT, Direction.UP, Direction.RIGHT, Direction.DOWN }, 4),
-				GetPermutationsWithRept(new List<Direction> { Direction.LEFT, Direction.UP, Direction.RIGHT, Direction.DOWN }, 5),
-				GetPermutationsWithRept(new List<Direction> { Direction.LEFT, Direction.UP, Direction.RIGHT, Direction.DOWN }, 6),
-				GetPermutationsWithRept(new List<Direction> { Direction.LEFT, Direction.UP, Direction.RIGHT, Direction.DOWN }, 7),
-				GetPermutationsWithRept(new List<Direction> { Direction.LEFT, Direction.UP, Direction.RIGHT, Direction.DOWN }, 8),
-			};
-			foreach (var item in listOfPerm.SelectMany(x => x))
-			{
-				pathes.Add(BuildPath(item));
-			}
+			//pathes.AddRange(new[]
+			//{
+			//	BuildPath(new[] { Direction.UP, Direction.LEFT }),
+			//	BuildPath(new[] { Direction.UP, Direction.RIGHT }),
+			//	BuildPath(new[] { Direction.RIGHT, Direction.UP }),
+			//	BuildPath(new[] { Direction.RIGHT, Direction.DOWN }),
+			//	BuildPath(new[] { Direction.DOWN, Direction.LEFT }),
+			//	BuildPath(new[] { Direction.DOWN, Direction.RIGHT }),
+			//	BuildPath(new[] { Direction.LEFT, Direction.UP }),
+			//	BuildPath(new[] { Direction.LEFT, Direction.DOWN }),
+			//});
 
 			var betterPath = CheckPathes(pathes.Where(x => x.Count > 0));
 
 			BestDirection = betterPath.First().Direction;
+
+			LogBestPath(betterPath);
+		}
+
+		private static void LogBestPath(Path betterPath)
+		{
+			StringBuilder sb = new StringBuilder($"{betterPath.Value}: ");
+			foreach (var item in betterPath)
+			{
+				sb.Append($"{item.Direction} ");
+			}
+			Console.WriteLine(sb.ToString());
 		}
 
 		private static Path GetLeftPath()
@@ -176,13 +194,19 @@ namespace Battlecity
 		{
 			var path = new Path();
 
+			var pos = PlayerPosition;
+
 			foreach (var dir in directions)
 			{
 				var additionalPoint = DirectionToPointDict[dir];
+
+				pos.X += additionalPoint.X;
+				pos.Y += additionalPoint.Y;
+
 				path.Add(new PathPart
 				{
 					Direction = dir,
-					Point = new Point(PlayerPosition.X + additionalPoint.X, PlayerPosition.Y + additionalPoint.Y)
+					Point = new Point(pos.X, pos.Y)
 				});
 			}
 
@@ -191,15 +215,15 @@ namespace Battlecity
 
 		private static Path CheckPathes(IEnumerable<Path> paths)
 		{
-			Path mostProfitablePath = paths.First();
+			var mostProfitablePath = paths.First();
 			var lowerPathValue = int.MaxValue;
 
 			foreach (var path in paths)
 			{
-				var pathValue = CheckPath(path);
-				if (lowerPathValue > pathValue)
+				path.Value = GetPathValue(path);
+				if (lowerPathValue > path.Value)
 				{
-					lowerPathValue = pathValue;
+					lowerPathValue = path.Value;
 					mostProfitablePath = path;
 				}
 			}
@@ -207,23 +231,44 @@ namespace Battlecity
 			return mostProfitablePath;
 		}
 
-		private static int CheckPath(Path path)
+		private static int GetPathValue(Path path)
 		{
 			// TO DO: Move this to CheckPathValue
 			var points = path.GetPoints();
-			foreach (var point in points)
+
+			for (int i = 0; i < points.Length; i++)
 			{
-				if (CheckEnemyInCell(point))
+				if (CheckEnemyInCell(points[i]))
 				{
-					return CheckPathValue(points);
+					ShouldAct = true;
+					return CheckPathValue(points.Take(i + 1).ToArray());
 				}
-				if (CheckWallInCell(point))
+				if (CheckWallInCell(points[i]))
 				{
-					return int.MaxValue;
+					break;
+				}
+				if ((i == 0 || i == 1 || i == 2) && CheckBulletInCell(points[i]))
+				{
+					break;
+				}
+				if (!CheckPathPartSafeness(path[i]))
+				{
+					break;
 				}
 			}
 
+			ShouldAct = true;
 			return int.MaxValue;
+		}
+
+		private static bool CheckBulletInCell(Point point)
+		{
+			if (point.X < 0 || point.Y < 0 || point.X > FieldLength - 1 || point.Y > FieldLength - 1)
+			{
+				return false;
+			}
+
+			return Field[point.Y, point.X] == BULLET;
 		}
 
 		private static bool CheckWallInCell(Point point)
@@ -254,13 +299,15 @@ namespace Battlecity
 				{
 					return int.MaxValue;
 				}
-
-				if (WallsDict.ContainsKey(chars[i]))
+				else if (ConstructionDict.ContainsKey(chars[i]))
 				{
-					value += WallsDict[chars[i]] * 3;
+					value += ConstructionDict[chars[i]] * 5;
 				}
-
-				if (chars[i] == GROUND)
+				else if (chars[i] == GROUND)
+				{
+					value++;
+				}
+				else
 				{
 					value++;
 				}
@@ -269,20 +316,30 @@ namespace Battlecity
 			return value;
 		}
 
-		static IEnumerable<IEnumerable<T>> GetPermutations<T>(IEnumerable<T> list, int length)
+		private static bool CheckPathPartSafeness(PathPart pathPart)
 		{
-			if (length == 1) return list.Select(t => new T[] { t });
-			return GetPermutations(list, length - 1)
-				.SelectMany(t => list.Where(o => !t.Contains(o)),
-					(t1, t2) => t1.Concat(new T[] { t2 }));
-		}
+			if (pathPart.Direction == Direction.LEFT || pathPart.Direction == Direction.RIGHT)
+			{
+				if (CheckBulletInCell(new Point(pathPart.Point.X + 1, pathPart.Point.Y)) ||
+					CheckBulletInCell(new Point(pathPart.Point.X + 2, pathPart.Point.Y)) ||
+					CheckBulletInCell(new Point(pathPart.Point.X - 1, pathPart.Point.Y)) ||
+					CheckBulletInCell(new Point(pathPart.Point.X - 2, pathPart.Point.Y)))
+				{
+					return false;
+				}
+			}
+			else
+			{
+				if (CheckBulletInCell(new Point(pathPart.Point.X, pathPart.Point.Y + 1)) ||
+					CheckBulletInCell(new Point(pathPart.Point.X, pathPart.Point.Y + 2)) ||
+					CheckBulletInCell(new Point(pathPart.Point.X, pathPart.Point.Y - 1)) ||
+					CheckBulletInCell(new Point(pathPart.Point.X, pathPart.Point.Y - 2)))
+				{
+					return false;
+				}
+			}
 
-		static IEnumerable<IEnumerable<T>> GetPermutationsWithRept<T>(IEnumerable<T> list, int length)
-		{
-			if (length == 1) return list.Select(t => new T[] { t });
-			return GetPermutationsWithRept(list, length - 1)
-				.SelectMany(t => list,
-					(t1, t2) => t1.Concat(new T[] { t2 }));
+			return true;
 		}
 	}
 
@@ -293,6 +350,8 @@ namespace Battlecity
 
 	class Path : List<PathPart>
 	{
+		public int Value { get; set; }
+
 		public Point[] GetPoints()
 		{
 			return this.Select(x => x.Point).ToArray();
