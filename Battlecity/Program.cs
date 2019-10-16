@@ -241,7 +241,7 @@ namespace Battlecity
 
 		private static int CheckPathValue(Point[] points)
 		{
-			return CheckPathValue(Enumerable.Range(1, points.Length- 1).Select(x => Field[points[x].Y, points[x].X]).ToArray());
+			return CheckPathValue(Enumerable.Range(0, points.Length).Select(x => Field[points[x].Y, points[x].X]).ToArray());
 		}
 
 		private static int CheckPathValue(char[] chars)
@@ -250,14 +250,19 @@ namespace Battlecity
 
 			for (int i = 0; i < chars.Length; i++)
 			{
-				if (i < chars.Length - 1 && chars[i] == WALL)
+				if (i != chars.Length - 1 && chars[i] == WALL)
 				{
 					return int.MaxValue;
 				}
 
 				if (WallsDict.ContainsKey(chars[i]))
 				{
-					value += WallsDict[chars[i]];
+					value += WallsDict[chars[i]] * 3;
+				}
+
+				if (chars[i] == GROUND)
+				{
+					value++;
 				}
 			}
 
