@@ -52,7 +52,8 @@ namespace Battlecity
 		const char
 			GROUND = ' ',
 			BULLET = '•',
-			WALL = '☼';
+			WALL = '☼',
+			DEAD_TANK = 'Ѡ';
 
 
 		static readonly Direction[] Directions = new Direction[]
@@ -111,8 +112,6 @@ namespace Battlecity
 
 			using (WebSocket = new WebSocket("ws://codenjoy.com:80/codenjoy-contest/ws?user=hsxsnhnir64osk1ku5ki&code=1208759298589485338"))
 			{
-
-
 				WebSocket.MessageReceived += (sender, e) =>
 				{
 					var oneLineField = regex.Matches(e.Message)[0].Value.Substring(1);
@@ -121,16 +120,7 @@ namespace Battlecity
 					InitializeField(oneLineField);
 
 					//Chech lines for target
-					FindClosestEnemy();
-
-					//if (ShouldAct)
-					//{
-					//	webSocket.Send($"{BestDirection.ToString()}, ACT");
-					//}
-					//else
-					//{
-					//	webSocket.Send($"{BestDirection.ToString()}");
-					//}
+					DoTheMagic();
 
 					if (MoveFirst)
 					{
@@ -140,6 +130,11 @@ namespace Battlecity
 					{
 						WebSocket.Send($"{Action}{Comma}{BestDirection.ToString()}");
 					}
+
+					// Reset values
+					//Action = "";
+					ShotCD--;
+					MoveFirst = true;
 
 					Log("-----");
 
@@ -226,10 +221,10 @@ namespace Battlecity
 				return false;
 			}
 
-			return EnemyChars.Contains(Field[point.Y, point.X]);
+			return EnemyChars.Contains(GetFieldChar(point));
 		}
 
-		private static void FindClosestEnemy()
+		private static void DoTheMagic()
 		{
 			// Find by directions
 			var pathes = new List<Path>
@@ -255,17 +250,23 @@ namespace Battlecity
 			var betterPath = CheckPathes(pathes.Where(x => x.Count > 0));
 			BestDirection = betterPath.First().Direction;
 
-
 			var pathesWithValues = SetPathesValue(pathes.Where(x => x.Count > 0));
 			var bPath = pathesWithValues.First();
 
-			Log($"Player want's to go to the: {bPath.First().Direction}");
+			Log($"Player wanna go: {bPath.First().Direction}");
+
+			var fullySafeMovements = GetFullySafeMovements();
+			Log($"Fully safe directions: {string.Join(",", fullySafeMovements)}");
+			//var kindaSafeMovements = GetKindaSafeMovements();
+
+			bool bulletOnPlayerLine = false;
 
 			// Avoid Player to go on Bullet
 			foreach (var path in pathesWithValues)
 			{
+				// If Player try to go on cell with potential bullet hit - Skip direction
 				var dir = path.First().Direction;
-				var point = path.First().Point;
+
 				if (dir == Direction.LEFT || dir == Direction.RIGHT)
 				{
 					var potentialBulletPositionOnLeft = PlayerPosition.Add(new Point(-3, 0));
@@ -273,7 +274,8 @@ namespace Battlecity
 
 					if (dir == Direction.LEFT &&
 						(CheckBulletInCell(potentialBulletPositionOnLeft) ||
-						CheckUpAndBottomThreat(PlayerPosition.Add(new Point(-1, 0))) ||
+						CheckUpAndBottomThreat(PlayerPosition.Add(new Point(-1, 0)))
+						||
 						dir == Direction.RIGHT &&
 						(CheckBulletInCell(potentialBulletPositionOnRight) ||
 						CheckUpAndBottomThreat(PlayerPosition.Add(new Point(1, 0))))))
@@ -289,7 +291,8 @@ namespace Battlecity
 
 					if (dir == Direction.UP &&
 						(CheckBulletInCell(potentialBulletPositionOnUp) ||
-						CheckLeftAndRightThreat(PlayerPosition.Add(new Point(-1, 0))) ||
+						CheckLeftAndRightThreat(PlayerPosition.Add(new Point(-1, 0)))
+						||
 						dir == Direction.DOWN &&
 						(CheckBulletInCell(potentialBulletPositionOnDown) ||
 						CheckLeftAndRightThreat(PlayerPosition.Add(new Point(1, 0))))))
@@ -299,9 +302,13 @@ namespace Battlecity
 					}
 				}
 
+				// If bullet on the same line with Player and potentially can kill him
 				if (CheckIfPlayerShouldMove())
 				{
-					if (CheckWallInCell(point))
+					bulletOnPlayerLine = true;
+
+					// Skip direction if it looks on the Wall.
+					if (CheckWallInCell(PlayerPosition.Add(DirectionToPointDict[dir])))
 					{
 						Log($"Threat to Player. Wall on {dir}");
 						continue;
@@ -311,9 +318,8 @@ namespace Battlecity
 
 					if (CheckBulletOnLeft())
 					{
-						Log($"Bullet on LEFT");
+						Log($"Bullet on LEFT", ConsoleColor.Red);
 
-						//if (dir == Direction.LEFT)
 						newDir = GetRandomSafeDirection(Direction.LEFT, Direction.RIGHT);
 						if (newDir == Direction.NONE)
 						{
@@ -322,9 +328,8 @@ namespace Battlecity
 					}
 					if (CheckBulletOnRight())
 					{
-						Log($"Bullet on RIGHT");
+						Log($"Bullet on RIGHT", ConsoleColor.Red);
 
-						//if (dir == Direction.RIGHT)
 						newDir = GetRandomSafeDirection(Direction.RIGHT, Direction.LEFT);
 						if (newDir == Direction.NONE)
 						{
@@ -333,9 +338,8 @@ namespace Battlecity
 					}
 					if (CheckBulletOnDown())
 					{
-						Log($"Bullet on DOWN");
+						Log($"Bullet on DOWN", ConsoleColor.Red);
 
-						//if (dir == Direction.DOWN)
 						newDir = GetRandomSafeDirection(Direction.DOWN, Direction.UP);
 						if (newDir == Direction.NONE)
 						{
@@ -344,9 +348,8 @@ namespace Battlecity
 					}
 					if (CheckBulletOnUp())
 					{
-						Log($"Bullet on UP");
+						Log($"Bullet on UP", ConsoleColor.Red);
 
-						//if (dir == Direction.UP)
 						newDir = GetRandomSafeDirection(Direction.UP, Direction.DOWN);
 						if (newDir == Direction.NONE)
 						{
@@ -362,22 +365,189 @@ namespace Battlecity
 				}
 
 
+				// If we faced player and we have ShotCD - run to fullySafeMovements. If there is no fullySafeMovements - do something
+
+
+
+				// Try to move to the opposite side of field
+
+
 				bPath = path;
 				BestDirection = dir;
 				break;
 			}
 
-
-			if (CheckPossibleShootThenMoveOutcomes())
+			if (CheckPossibleShootThenMoveOutcomes(BestDirection))
 			{
 				Log("Shoot then move");
 				MoveFirst = false;
 			}
 
-
+			if (!bulletOnPlayerLine)
+			{
+				MoveToFullySafePlace(fullySafeMovements);
+			}
 
 			Log($"Dir: {BestDirection}; Value = {bPath.Value}");
 			//LogBestPath(bPath);
+
+
+
+			
+		}
+
+		private static void MoveToFullySafePlace(IEnumerable<Direction> fullySafeMovements)
+		{
+			foreach (var item in fullySafeMovements)
+			{
+
+			}
+		}
+
+		private static IEnumerable<Direction> GetKindaSafeMovements()
+		{
+			throw new NotImplementedException();
+		}
+
+		private static IEnumerable<Direction> GetFullySafeMovements()
+		{
+			var list = new List<Direction>();
+
+			foreach (var direction in Directions)
+			{
+				var newPotentialPos = PlayerPosition.Add(DirectionToPointDict[direction]);
+				if (direction == Direction.LEFT || direction == Direction.RIGHT)
+				{
+					if (CheckIsEmptyCell(newPotentialPos))
+					{
+						var backPoint = direction == Direction.RIGHT
+							? PlayerPosition.Add(new Point(-1, 0))
+							: PlayerPosition.Add(new Point(1, 0));
+						if (!CheckPositionSafetiness(backPoint))
+						{
+							continue;
+						}
+
+						for (int x = 1; x <= 3; x++)
+						{
+							var pointToCheck = direction == Direction.RIGHT
+								? PlayerPosition.Add(new Point(x, 0))
+								: PlayerPosition.Add(new Point(-x, 0));
+							if (!CheckPositionSafetiness(pointToCheck))
+							{
+								continue;
+							}
+						}
+						// Check Down side
+						for (int y = 1; y <= 3; y++)
+						{
+							var pointToCheck = newPotentialPos.Add(new Point(0, y));
+							if (!CheckPositionSafetiness(pointToCheck))
+							{
+								continue;
+							}
+						}
+						// Check Up side
+						for (int y = 1; y <= 3; y++)
+						{
+							var pointToCheck = newPotentialPos.Add(new Point(0, -y));
+							if (!CheckPositionSafetiness(pointToCheck))
+							{
+								continue;
+							}
+						}
+					}
+					else
+					{
+						continue;
+					}
+				}
+				else
+				{
+					if (CheckIsEmptyCell(newPotentialPos))
+					{
+						var backPoint = direction == Direction.UP
+							? PlayerPosition.Add(new Point(0, 1))
+							: PlayerPosition.Add(new Point(0, -1));
+						if (!CheckPositionSafetiness(backPoint))
+						{
+							continue;
+						}
+
+						for (int y = 1; y <= 3; y++)
+						{
+							var pointToCheck = direction == Direction.UP
+								? PlayerPosition.Add(new Point(0, -y))
+								: PlayerPosition.Add(new Point(0, y));
+							if (!CheckPositionSafetiness(pointToCheck))
+							{
+								continue;
+							}
+						}
+						// Check Right side
+						for (int x = 1; x <= 3; x++)
+						{
+							var pointToCheck = newPotentialPos.Add(new Point(x, 0));
+							if (!CheckPositionSafetiness(pointToCheck))
+							{
+								continue;
+							}
+						}
+						// Check Left side
+						for (int x = 1; x <= 3; x++)
+						{
+							var pointToCheck = newPotentialPos.Add(new Point(-x, 0));
+							if (!CheckPositionSafetiness(pointToCheck))
+							{
+								continue;
+							}
+						}
+					}
+					else
+					{
+						continue;
+					}
+				}
+
+				list.Add(direction);
+			}
+
+
+
+
+			return list;
+		}
+
+		private static bool CheckPositionSafetiness(Point position)
+		{
+			if (CheckBarrierInCell(position))
+			{
+				return true;
+			}
+
+			return !CheckIsBulletOrEnemyInCell(position);
+		}
+
+		private static bool CheckIsBulletOrEnemyInCell(Point position)
+		{
+			if (!CheckPointCorrectness(position))
+			{
+				return false;
+			}
+
+			return
+				EnemyChars.Contains(GetFieldChar(position)) ||
+				GetFieldChar(position) == BULLET;
+		}
+
+		private static bool CheckIsEmptyCell(Point position)
+		{
+			if (!CheckPointCorrectness(position))
+			{
+				return false;
+			}
+
+			return GetFieldChar(position) == GROUND || GetFieldChar(position) == DEAD_TANK;
 		}
 
 		private static bool CheckBulletOnLeft()
@@ -422,9 +592,13 @@ namespace Battlecity
 			Console.WriteLine(sb.ToString());
 		}
 
-		private static void Log(string message)
+		private static void Log(string message, ConsoleColor fontColor = ConsoleColor.Gray)
 		{
+			Console.ForegroundColor = fontColor;
+
 			Console.WriteLine(message);
+
+			Console.ForegroundColor = ConsoleColor.Gray;
 		}
 
 		private static Path GetLeftPath()
@@ -573,7 +747,7 @@ namespace Battlecity
 				return false;
 			}
 
-			return Field[point.Y, point.X] == WALL;
+			return GetFieldChar(point) == WALL;
 		}
 
 		private static int GetDistanceToEnemy(Point enemyPosition)
@@ -713,7 +887,6 @@ namespace Battlecity
 			// If player has bullet and there is a potential Kill - shoot.
 			// If not - try to move to most safe place (that are without enemies faced to the Player).
 			// If not - try to move to an approximately safe direction.
-
 
 			if (CheckPossibleShootThenMoveOutcomes())
 			{
@@ -879,6 +1052,36 @@ namespace Battlecity
 			return isAble;
 		}
 
+		private static bool CheckPossibleShootThenMoveOutcomes(Direction direction)
+		{
+			var isAble = false;
+
+			switch (direction)
+			{
+				case Direction.LEFT:
+					isAble = CheckStarQuarterLeft();
+					break;
+				case Direction.UP:
+					isAble = CheckStarQuarterUp();
+					break;
+				case Direction.RIGHT:
+					isAble = CheckStarQuarterRight();
+					break;
+				case Direction.DOWN:
+					isAble = CheckStarQuarterDown();
+					break;
+				default:
+					break;
+			}
+
+			if (isAble)
+			{
+				Log($"Potential Enemy that  can be killed on the {direction}");
+			}
+
+			return isAble;
+		}
+
 		private static bool CheckStarQuarterRight()
 		{
 			return
@@ -1015,8 +1218,7 @@ namespace Battlecity
 		{
 			return
 				!CheckUpAndBottomThreat(point) &&
-				!CheckWallInCell(point) &&
-				!CheckConstructionInCell(point) &&
+				!CheckBarrierInCell(point) &&
 				!CheckEnemyInCell(point);
 		}
 
@@ -1024,8 +1226,7 @@ namespace Battlecity
 		{
 			return
 				!CheckLeftAndRightThreat(point) &&
-				!CheckWallInCell(point) &&
-				!CheckConstructionInCell(point) &&
+				!CheckBarrierInCell(point) &&
 				!CheckEnemyInCell(point);
 		}
 
@@ -1053,13 +1254,6 @@ namespace Battlecity
 
 			return false;
 		}
-
-		//private static Direction CheckThreatDirection()
-		//{
-		//	
-
-		//	return Direction.NONE;
-		//}
 
 		private static bool IsBulletOnCrossOnPlayer()
 		{
