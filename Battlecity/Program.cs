@@ -259,6 +259,8 @@ namespace Battlecity
 			var pathesWithValues = SetPathesValue(pathes.Where(x => x.Count > 0));
 			var bPath = pathesWithValues.First();
 
+			Log($"Player want's to go to the: {bPath.First().Direction}");
+
 			// Avoid Player to go on Bullet
 			foreach (var path in pathesWithValues)
 			{
@@ -276,7 +278,7 @@ namespace Battlecity
 						(CheckBulletInCell(potentialBulletPositionOnRight) ||
 						CheckUpAndBottomThreat(PlayerPosition.Add(new Point(1, 0))))))
 					{
-						Log($"Threat from: {dir}");
+						Log($"Threat from: {dir}. Skip direction");
 						continue;
 					}
 				}
@@ -292,15 +294,13 @@ namespace Battlecity
 						(CheckBulletInCell(potentialBulletPositionOnDown) ||
 						CheckLeftAndRightThreat(PlayerPosition.Add(new Point(1, 0))))))
 					{
-						Log($"Threat from: {dir}");
+						Log($"Threat from: {dir}. Skip direction");
 						continue;
 					}
 				}
 
 				if (CheckIfPlayerShouldMove())
 				{
-					Log($"Bullet on line with Player");
-
 					if (CheckWallInCell(point))
 					{
 						Log($"Threat to Player. Wall on {dir}");
@@ -356,6 +356,7 @@ namespace Battlecity
 
 					if (newDir != Direction.NONE)
 					{
+						Log($"Change direction to safe: {newDir}");
 						dir = newDir;
 					}
 				}
