@@ -121,7 +121,8 @@ namespace Battlecity
 					InitializeField(oneLineField);
 
 					//Chech lines for target
-					DoTheMagicV2();
+					DoTheMagic();
+					//DoTheMagicV2();
 
 					if (MoveFirst)
 					{
@@ -653,10 +654,11 @@ namespace Battlecity
 
 		private static void MoveToFullySafePlace(IEnumerable<Direction> fullySafeMovements)
 		{
-			foreach (var item in fullySafeMovements)
-			{
-
-			}
+			Move(fullySafeMovements.ElementAt(Random.Next(fullySafeMovements.Count())));
+			//foreach (var item in fullySafeMovements)
+			//{
+				
+			//}
 		}
 
 		private static IEnumerable<Direction> GetKindaSafeMovements()
