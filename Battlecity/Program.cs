@@ -111,7 +111,8 @@ namespace Battlecity
 				dueTime: 500,
 				period: 500);
 
-			using (WebSocket = new WebSocket("ws://codenjoy.com:80/codenjoy-contest/ws?user=hsxsnhnir64osk1ku5ki&code=1208759298589485338"))
+			//using (WebSocket = new WebSocket("ws://codenjoy.com:80/codenjoy-contest/ws?user=hsxsnhnir64osk1ku5ki&code=1208759298589485338"))
+			using (WebSocket = new WebSocket("ws://dojorena.io:80/codenjoy-contest/ws?user=2i2d0jgyzmunnas39ese&code=9109660784893065064"))
 			{
 				WebSocket.MessageReceived += (sender, e) =>
 				{
@@ -121,8 +122,12 @@ namespace Battlecity
 					InitializeField(oneLineField);
 
 					//Chech lines for target
-					DoTheMagic();
+					//DoTheMagic();
 					//DoTheMagicV2();
+
+					InitDTM3();
+					DoTheMagicV3();
+
 
 					if (MoveFirst)
 					{
@@ -591,6 +596,58 @@ namespace Battlecity
 			}
 		}
 
+
+
+		private static void InitDTM3()
+		{
+
+		}
+
+		private static void DoTheMagicV3()
+		{
+			var grid = new SquareGrid(FieldLength, FieldLength, Field);
+
+			var enemyPositions = new List<Location>();
+			for (int y = 0; y < FieldLength; y++)
+			{
+				for (int x = 0; x < FieldLength; x++)
+				{
+					var p = new Location(x, y);
+					if (EnemyChars.Contains(GetFieldChar(p)))
+					{
+						enemyPositions.Add(p);
+					}
+				}
+			}
+
+			var nearestEnemy = int.MaxValue;
+			Dictionary<Location, Location> bestPath = new Dictionary<Location, Location>();
+			foreach (var enemyPos in enemyPositions)
+			{
+				var astar = new AStarSearch(grid, enemyPos);
+
+				if (nearestEnemy > astar.costSoFar.Last().Value)
+				{
+					bestPath = astar.cameFrom;
+					nearestEnemy = astar.costSoFar.Last().Value;
+				}
+			}
+
+			Log($"Near enemy: { nearestEnemy}");
+			for (int i = 1; i < bestPath.Count; i++)
+			{
+				Console.Write($"{PointsToDirection(bestPath.ElementAt(i).Key, bestPath.ElementAt(i).Value)} ");
+			}
+			//Log($"Path: { PointsToDirection(bestPath.ElementAt(1).Key, bestPath.ElementAt(1).Value) }");
+		}
+
+		static Direction PointsToDirection(Location start, Location end)
+		{
+			var newLoc = new Point(end.X - start.X, end.Y - start.Y);
+			return DirectionToPointDict.FirstOrDefault(x => x.Value == newLoc).Key;
+		}
+
+
 		private static bool CheckPossibleShootThenMoveOutcomesV2()
 		{
 			switch (PlayerDirection)
@@ -654,6 +711,7 @@ namespace Battlecity
 
 		private static void MoveToFullySafePlace(IEnumerable<Direction> fullySafeMovements)
 		{
+			if (fullySafeMovements.Count() > 0)
 			Move(fullySafeMovements.ElementAt(Random.Next(fullySafeMovements.Count())));
 			//foreach (var item in fullySafeMovements)
 			//{
@@ -1503,6 +1561,11 @@ namespace Battlecity
 			return Field[point.Y, point.X];
 		}
 
+		private static char GetFieldChar(Location point)
+		{
+			return Field[point.Y, point.X];
+		}
+
 		private static bool CheckIfPlayerShouldMove()
 		{
 			if (IsBulletOnCrossOnPlayer())
@@ -1627,4 +1690,273 @@ namespace Battlecity
 			return new Point(point.X + newPoint.X, point.Y + newPoint.Y);
 		}
 	}
+
+
+
+
+
+
+
+	public interface WeightedGraph<L>
+	{
+		//property signatures   
+		int Cost(Location a, Location b, Location c, Dictionary<Location, Location> d);
+		IEnumerable<Location> Neighbors(Location id);
+	}
+
+
+	public struct Location
+	{
+		// Implementation notes: I am using the default Equals but it can
+		// be slow. You'll probably want to override both Equals and
+		// GetHashCode in a real project.
+
+		//Fields de la estructura
+		public readonly int X, Y;
+		//constructor de Location
+		public Location(int x, int y)
+		{
+			this.X = x;
+			this.Y = y;
+		}
+	}
+
+
+	public class SquareGrid : WeightedGraph<Location>
+	{
+		// Implementation notes: I made the fields public for convenience,
+		// but in a real project you'll probably want to follow standard
+		// style and make them private.
+
+		static readonly Dictionary<char, int> ConstructionDict = new Dictionary<char, int>
+		{
+			{ '╬', 3 },
+
+			{ '╩', 2 },
+			{ '╦', 2 },
+			{ '╠', 2 },
+			{ '╣', 2 },
+
+			{ '╨', 1 },
+			{ '╥', 1 },
+			{ '╞', 1 },
+			{ '╡', 1 },
+			{ '│', 1 },
+			{ '─', 1 },
+			{ '┌', 1 },
+			{ '┐', 1 },
+			{ '└', 1 },
+			{ '┘', 1 }
+		};
+		const char
+			GROUND = ' ',
+			BULLET = '•',
+			WALL = '☼',
+			DEAD_TANK = 'Ѡ';
+
+		//Fields
+		public static readonly Location[] DIRS = new[]
+		{
+			 new Location(1, 0),
+			 new Location(0, -1),
+			 new Location(-1, 0),
+			 new Location(0, 1),
+		 };
+
+		public int width, height;
+		public HashSet<Location> walls = new HashSet<Location>();
+		public HashSet<Location> consturctions = new HashSet<Location>();
+		public char[,] Field;
+
+		//Constructor
+		public SquareGrid(int width, int height, char[,] field)
+		{
+			this.width = width;
+			this.height = height;
+			Field = field;
+
+			InitWallsAndCtors();
+		}
+
+		private void InitWallsAndCtors()
+		{
+			for (int y = 0; y < height; y++)
+			{
+				for (int x = 0; x < width; x++)
+				{
+					var loc = new Location(x, y);
+					if (GetFieldChar(loc) == WALL)
+					{
+						walls.Add(loc);
+					}
+					//else if (ConstructionDict.ContainsKey(GetFieldChar(loc)))
+					//{
+					//	consturctions.Add(loc);
+					//}
+				}
+			}
+		}
+
+		//Other Functions
+
+		//This cheks' if we're in the border of the map
+		public bool InBounds(Location id)
+		{
+			return 0 <= id.X && id.X < width && 0 <= id.Y && id.Y < height;
+		}
+
+		//This tells us where are the walls
+		public bool Passable(Location id)
+		{
+			return !walls.Contains(id);
+		}
+
+		//Property implementation
+
+		//This returns the cost of the tile we want to move
+		public int Cost(Location start, Location current, Location next, Dictionary<Location, Location> d)
+		{
+			var Coste = 1;
+
+			//We check if the direcctionof the next tile it's a diagonal and then we return the cost
+			//if (next.x - 1 == d[current].x && next.y + 1 == d[current].y)
+			//Console.Write(" Current x y: " + current.x + " " + current.y);
+
+			//Console.Write(" parent x,y: " + d[current].x + " " + d[current].y);
+			//if (next.x + 1 == current.x && next.y + 1 == current.y)
+			//{
+			//	Coste = 1.5;
+			//}
+			//if (next.x - 1 == current.x && next.y + 1 == current.y)
+			//{
+			//	Coste = 1.5;
+			//}
+			//if (next.x - 1 == current.x && next.y - 1 == current.y)
+			//{
+			//	Coste = 1.5;
+			//}
+			//if (next.x + 1 == current.x && next.y - 1 == current.y)
+			//{
+			//	Coste = 1.5;
+			//}
+
+			if (ConstructionDict.ContainsKey(GetFieldChar(next)))
+			{
+				Coste += ConstructionDict[GetFieldChar(next)] * 4;
+			}
+
+			return Coste;
+		}
+
+		private char GetFieldChar(Location point)
+		{
+			return Field[point.Y, point.X];
+		}
+
+		public IEnumerable<Location> Neighbors(Location id)
+		{
+			foreach (var dir in DIRS)
+			{
+				Location next = new Location(id.X + dir.X, id.Y + dir.Y);
+				if (InBounds(next) && Passable(next))
+				{
+					yield return next;
+				}
+			}
+		}
+	}
+
+
+	public class PriorityQueue<T>
+	{
+		// I'm using an unsorted array for this example, but ideally this
+		// would be a binary heap. Find a binary heap class:
+		// * https://bitbucket.org/BlueRaja/high-speed-priority-queue-for-c/wiki/Home
+		// * http://visualstudiomagazine.com/articles/2012/11/01/priority-queues-with-c.aspx
+		// * http://xfleury.github.io/graphsearch.html
+		// * http://stackoverflow.com/questions/102398/priority-queue-in-net
+
+		private List<Tuple<T, int>> elements = new List<Tuple<T, int>>();
+
+		public int Count
+		{
+			get { return elements.Count; }
+		}
+
+		public void Enqueue(T item, int priority)
+		{
+			elements.Add(Tuple.Create(item, priority));
+		}
+
+		public T Dequeue()
+		{
+			int bestIndex = 0;
+
+			for (int i = 0; i < elements.Count; i++)
+			{
+				if (elements[i].Item2 < elements[bestIndex].Item2)
+				{
+					bestIndex = i;
+				}
+			}
+
+			T bestItem = elements[bestIndex].Item1;
+			elements.RemoveAt(bestIndex);
+			return bestItem;
+		}
+	}
+
+
+	public class AStarSearch
+	{
+		public Dictionary<Location, Location> cameFrom
+			= new Dictionary<Location, Location>();
+		public Dictionary<Location, int> costSoFar
+			= new Dictionary<Location, int>();
+
+		public AStarSearch(WeightedGraph<Location> graph, Location start)
+		{
+			var frontier = new PriorityQueue<Location>();
+			frontier.Enqueue(start, 0);
+
+			cameFrom.Add(start, start);
+
+			costSoFar.Add(start, 1);
+
+			//intentamos que recorra solo un area que nosotros delimitamos
+			//en cada vuelta hace: 4 casillas, luego 8, luego 12, luego 16...
+			int vueltas = 0;
+			//esto es el nº de veces que da la vuelta
+			int radio = 4;
+			//llenamos k con el valor que nos interesa
+			for (int k = 0; k < radio; k++)
+			{
+				vueltas = vueltas + (k * 4); //esto ya esta procesado par que el bucle haga bien su recorrido
+			}
+			//este primer bucle nos controla lo grande que es el radio de nuestro algritmo de busqueda
+			for (int i = 0; i <= vueltas; i++)
+			{
+				var current = frontier.Dequeue();
+
+				foreach (var next in graph.Neighbors(current))
+				{
+					//int newCost = costSoFar[current] + graph.Cost(current, next);
+					//esto es lo que controla lo que cuestan las siguientes casillas; aquí está la clave
+					//Console.Write(" next: " + next.x + " " + next.y);
+
+					var newCost = costSoFar[current] + graph.Cost(start, current, next, cameFrom);
+					//if (!costSoFar.ContainsKey(next) || newCost < costSoFar[next])
+					if (!cameFrom.ContainsKey(next))
+					{
+
+						costSoFar.Add(next, newCost);
+						cameFrom.Add(next, current);
+						frontier.Enqueue(next, (int)newCost);
+
+					}
+				}
+			}
+		}
+	}
+
 }
